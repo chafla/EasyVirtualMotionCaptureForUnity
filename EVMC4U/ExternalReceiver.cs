@@ -67,6 +67,13 @@ namespace EVMC4U
         [SerializeField, Label("ルートスケール反映")]
         public bool RootScaleOffsetSynchronize = false; //MRスケール適用
 
+        [SerializeField]
+        // TODO I DID THIS
+        public bool IgnoreRootScaleOffset = false;
+
+        public bool dontAdjustPositionWithScale = false;
+        // END WHAT I DID
+
 #if EVMC4U_JA
         [Header("その他の同期オプション")]
 #else
@@ -726,9 +733,21 @@ namespace EVMC4U
                 //モデル姿勢をルート姿勢にする
                 RootRotationTransform = Model.transform;
             }
+            // VRLIVE EDIT
+            // this is a bit of a micro-optimization, but string comparisons in this function are actually one of the
+            // biggest performance hog on quest
+            // as a result, we'll perform one quick comparison to chop off the end, and then we just need to check some
+            // smaller bits
+            if (message.address[..9] != "/VMC/Ext/")
+            {
+                StatusMessage = "Bad Message.";
+                return;
+            }
+
+            var addr = message.address[9..];
 
             //モーションデータ送信可否
-            if (message.address == "/VMC/Ext/OK"
+            if (addr == "OK"
                 && (message.values[0] is int))
             {
                 Available = (int)message.values[0];
@@ -761,7 +780,7 @@ namespace EVMC4U
                 return;
             }
             //データ送信時刻
-            else if (message.address == "/VMC/Ext/T"
+            else if (addr == "T"
                 && (message.values[0] is float))
             {
                 time = (float)message.values[0];
@@ -769,7 +788,7 @@ namespace EVMC4U
                 return;
             }
             //VRM自動読み込み
-            else if (message.address == "/VMC/Ext/VRM"
+            else if (addr == "VRM"
                 && (message.values[0] is string)
                 && (message.values[1] is string)
                 )
@@ -787,7 +806,7 @@ namespace EVMC4U
                 return;
             }
             //オプション文字列
-            else if (message.address == "/VMC/Ext/Opt"
+            else if (addr == "Opt"
                 && (message.values[0] is string))
             {
                 OptionString = (string)message.values[0];
@@ -802,7 +821,7 @@ namespace EVMC4U
             }
 
             //Root姿勢
-            if (message.address == "/VMC/Ext/Root/Pos"
+            if (addr == "Root/Pos"
                 && (message.values[0] is string)
                 && (message.values[1] is float)
                 && (message.values[2] is float)
@@ -822,7 +841,17 @@ namespace EVMC4U
                 rot.y = (float)message.values[5];
                 rot.z = (float)message.values[6];
                 rot.w = (float)message.values[7];
-
+                
+                if (message.values[0] is string)
+                {
+                    string keyPhrase = (string) message.values[0];
+                    if (keyPhrase == "root")
+                    {
+                        return;
+                    }
+                    // MY EDIT: WE IGNORE THESE BECAUSE THEY COME FROM SLIMEVR AND SCREW EVERYTHING UP
+                   
+                }
                 //位置同期
                 if (RootPositionSynchronize)
                 {
@@ -833,6 +862,8 @@ namespace EVMC4U
                 {
                     RootRotationTransform.localRotation = rot;
                 }
+
+                
                 //スケール同期とオフセット補正(v2.1拡張プロトコルの場合のみ)
                 if (RootScaleOffsetSynchronize && message.values.Length > RootPacketLengthOfScaleAndOffset
                     && (message.values[8] is float)
@@ -851,7 +882,8 @@ namespace EVMC4U
                     offset.z = (float)message.values[13];
 
                     Model.transform.localScale = scale;
-                    RootPositionTransform.localPosition = Vector3.Scale(RootPositionTransform.localPosition, scale);
+                    if (!dontAdjustPositionWithScale)
+                        RootPositionTransform.localPosition = Vector3.Scale(RootPositionTransform.localPosition, scale);
 
                     //位置同期が有効な場合のみオフセットを反映する
                     if (RootPositionSynchronize)
@@ -860,13 +892,14 @@ namespace EVMC4U
                         RootPositionTransform.localPosition -= offset;
                     }
                 }
-                else
+                else if (!IgnoreRootScaleOffset)
                 {
+                    // FIXME LOCAL EDIT
                     Model.transform.localScale = Vector3.one;
                 }
             }
             //ボーン姿勢
-            else if (message.address == "/VMC/Ext/Bone/Pos"
+            else if (addr == "Bone/Pos"
                 && (message.values[0] is string)
                 && (message.values[1] is float)
                 && (message.values[2] is float)
@@ -912,7 +945,7 @@ namespace EVMC4U
                 //受信と更新のタイミングは切り離した
             }
             //ブレンドシェイプ同期
-            else if (message.address == "/VMC/Ext/Blend/Val"
+            else if (addr == "Blend/Val"
                 && (message.values[0] is string)
                 && (message.values[1] is float)
                 )
@@ -927,7 +960,7 @@ namespace EVMC4U
                 }
             }
             //ブレンドシェープ適用
-            else if (message.address == "/VMC/Ext/Blend/Apply")
+            else if (addr == "Blend/Apply")
             {
                 if (BlendShapeSynchronize)
                 {
